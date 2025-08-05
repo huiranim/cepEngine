@@ -30,13 +30,13 @@ public class CepEngine {
 
     private final StreamExecutionEnvironment env;                   // Flink 스트리밍 실행 환경 (데이터 스트림의 소스, 변환, 싱크를 관리)
     private final KafkaSource<String> kafkaSource;                  // Kafka로부터 실시간 이벤트를 읽어오는 Source
-    private final WatermarkStrategy<String> watermarkStrategy;      // 이벤트 시간 기반 처리를 위한 워터마크 전략 (현 설정: 워터마크 미설정)
+    private final WatermarkStrategy<Map<String, Object>> watermarkStrategy;      // 이벤트 시간 기반 처리를 위한 워터마크 전략 (현 설정: 워터마크 미설정)
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(CepEngine.class);
 
     public CepEngine(StreamExecutionEnvironment env,
                      KafkaSource<String> kafkaSource,
-                     WatermarkStrategy<String> watermarkStrategy) {
+                     WatermarkStrategy<Map<String, Object>> watermarkStrategy) {
         this.env = env;
         this.kafkaSource = kafkaSource;
         this.watermarkStrategy = watermarkStrategy;
@@ -76,7 +76,7 @@ public class CepEngine {
         log.info("Initializing Kafka source...");
         DataStream<Map<String, Object>> eventStream = env.fromSource(
                         kafkaSource,
-                        watermarkStrategy,
+                        WatermarkStrategy.noWatermarks(),
                         "KafkaSource")
                 .map(new MapFunction<String, Map<String, Object>>() {
                      @Override
@@ -93,6 +93,7 @@ public class CepEngine {
                          }
                      }
                 })
+                .assignTimestampsAndWatermarks(watermarkStrategy)
                 .filter(Objects::nonNull);  // null이 아닌 것만 필터링
 
         // 2. CEP 패턴 정의: 동일 유저가 특정 상품을 10분 내 3번 클릭

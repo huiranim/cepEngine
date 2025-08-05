@@ -8,6 +8,10 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+
 @Configuration
 public class Config {
     /*
@@ -41,10 +45,18 @@ public class Config {
      *         예) 5분 늦게 도착한 이벤트도 “10분 이내 클릭”에 포함시켜야 할 경우 사용
      */
     @Bean
-    public WatermarkStrategy<String> watermarkStrategy() {
-        return WatermarkStrategy.noWatermarks();    // 워터마크 미설정
+    public WatermarkStrategy<Map<String, Object>> watermarkStrategy() {
+//        return WatermarkStrategy.noWatermarks();    // 워터마크 미설정
 
-//         return WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofSeconds(30))
-//                 .withTimestampAssigner((e, ts) -> e.getTimestamp());
+        return WatermarkStrategy
+                .<Map<String, Object>>forBoundedOutOfOrderness(Duration.ofSeconds(5)) // 이벤트 도착 지연 허용 시간
+                .withTimestampAssigner((event, timestamp) -> {
+                    try {
+                        String timestampStr = (String) event.get("timestamp");  // timestamp 필드를 타임스탬프로 인식하게 함
+                        return Instant.parse(timestampStr).toEpochMilli(); // ISO 8601 → long
+                    } catch (Exception e) {
+                        return System.currentTimeMillis(); // fallback
+                    }
+                });
     }
 }
