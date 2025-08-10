@@ -190,40 +190,46 @@ public class CepEngine {
         // 3. userId+productId로 키 그룹화하고 카운트
         clickEvents.keyBy(e -> e.get("userId") + "_" + e.get("productId"))
                 .countWindow(3) // 3번 클릭 시 윈도우 완료
-                .apply((key, window, input, out) -> {
-                    try {
-                        // Iterable의 크기 계산
-                        int count = 0;
-                        for (Map<String, Object> event : input) {
-                            count++;
-                        }
-                        
-                        log.info("*** COUNT WINDOW COMPLETED *** Key: {}, Count: {}", key, count);
-                        
-                        // 다시 iterator를 생성하여 데이터 처리
-                        String userId = null;
-                        String productId = null;
-                        for (Map<String, Object> click : input) {
-                            if (userId == null) {
-                                userId = (String) click.get("userId");
-                                productId = (String) click.get("productId");
+                .apply(new org.apache.flink.streaming.api.functions.windowing.WindowFunction<Map<String, Object>, String, String, org.apache.flink.streaming.api.windowing.windows.GlobalWindow>() {
+                    @Override
+                    public void apply(String key, 
+                                    org.apache.flink.streaming.api.windowing.windows.GlobalWindow window,
+                                    Iterable<Map<String, Object>> input, 
+                                    org.apache.flink.util.Collector<String> out) throws Exception {
+                        try {
+                            // Iterable의 크기 계산
+                            int count = 0;
+                            for (Map<String, Object> event : input) {
+                                count++;
                             }
+                            
+                            log.info("*** COUNT WINDOW COMPLETED *** Key: {}, Count: {}", key, count);
+                            
+                            // 다시 iterator를 생성하여 데이터 처리
+                            String userId = null;
+                            String productId = null;
+                            for (Map<String, Object> click : input) {
+                                if (userId == null) {
+                                    userId = (String) click.get("userId");
+                                    productId = (String) click.get("productId");
+                                }
+                            }
+                            
+                            String result = "[SIMPLE 감지] userId=" + userId + ", productId=" + productId + 
+                                           " → 3번 클릭 감지! 쿠폰 발급 대상!";
+                            log.info(result);
+                            
+                            // 각 클릭의 타임스탬프 출력
+                            int i = 1;
+                            for (Map<String, Object> click : input) {
+                                log.info("Click {}: {}", i++, click.get("timestamp"));
+                            }
+                            
+                            out.collect(result);
+                        } catch (Exception e) {
+                            log.error("Exception in count window", e);
+                            out.collect("[SIMPLE 감지] Exception occurred");
                         }
-                        
-                        String result = "[SIMPLE 감지] userId=" + userId + ", productId=" + productId + 
-                                       " → 3번 클릭 감지! 쿠폰 발급 대상!";
-                        log.info(result);
-                        
-                        // 각 클릭의 타임스탬프 출력
-                        int i = 1;
-                        for (Map<String, Object> click : input) {
-                            log.info("Click {}: {}", i++, click.get("timestamp"));
-                        }
-                        
-                        out.collect(result);
-                    } catch (Exception e) {
-                        log.error("Exception in count window", e);
-                        out.collect("[SIMPLE 감지] Exception occurred");
                     }
                 }).print();
 
