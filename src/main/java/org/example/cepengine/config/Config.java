@@ -42,16 +42,17 @@ public class Config {
     /*
      * 이벤트 시간 기반 처리를 위한 워터마크 전략 설정
      * 워터마크: Flink에서 지연된 이벤트를 다루기 위해 이벤트 스트림에 붙이는 타임마커
-     *         예) 5분 늦게 도착한 이벤트도 “10분 이내 클릭”에 포함시켜야 할 경우 사용
+     *         예) 5분 늦게 도착한 이벤트도 "10분 이내 클릭"에 포함시켜야 할 경우 사용
      */
     @Bean
-    public WatermarkStrategy<Map<String, Object>> watermarkStrategy() {
-//        return WatermarkStrategy.noWatermarks();    // 워터마크 미설정
-
+    public WatermarkStrategy<String> watermarkStrategy() {
         return WatermarkStrategy
-                .<Map<String, Object>>forBoundedOutOfOrderness(Duration.ofSeconds(5)) // 이벤트 도착 지연 허용 시간
-                .withTimestampAssigner((event, timestamp) -> {
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5)) // 이벤트 도착 지연 허용 시간
+                .withTimestampAssigner((jsonString, timestamp) -> {
                     try {
+                        // JSON에서 timestamp 필드를 추출하여 타임스탬프로 사용
+                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        java.util.Map<String, Object> event = mapper.readValue(jsonString, java.util.Map.class);
                         String timestampStr = (String) event.get("timestamp");  // timestamp 필드를 타임스탬프로 인식하게 함
                         return Instant.parse(timestampStr).toEpochMilli(); // ISO 8601 → long
                     } catch (Exception e) {

@@ -30,13 +30,13 @@ public class CepEngine {
 
     private final StreamExecutionEnvironment env;                   // Flink 스트리밍 실행 환경 (데이터 스트림의 소스, 변환, 싱크를 관리)
     private final KafkaSource<String> kafkaSource;                  // Kafka로부터 실시간 이벤트를 읽어오는 Source
-    private final WatermarkStrategy<Map<String, Object>> watermarkStrategy;      // 이벤트 시간 기반 처리를 위한 워터마크 전략 (현 설정: 워터마크 미설정)
+    private final WatermarkStrategy<String> watermarkStrategy;      // 워터마크 전략
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(CepEngine.class);
 
     public CepEngine(StreamExecutionEnvironment env,
                      KafkaSource<String> kafkaSource,
-                     WatermarkStrategy<Map<String, Object>> watermarkStrategy) {
+                     WatermarkStrategy<String> watermarkStrategy) {
         this.env = env;
         this.kafkaSource = kafkaSource;
         this.watermarkStrategy = watermarkStrategy;
@@ -76,7 +76,7 @@ public class CepEngine {
         log.info("Initializing Kafka source...");
         DataStream<Map<String, Object>> eventStream = env.fromSource(
                         kafkaSource,
-                        WatermarkStrategy.noWatermarks(),
+                        watermarkStrategy,
                         "KafkaSource")
                 .map(new MapFunction<String, Map<String, Object>>() {
                      @Override
@@ -85,6 +85,13 @@ public class CepEngine {
                              Map<String, Object> parsed = OBJECT_MAPPER.readValue(json, Map.class);
                              log.info("Received Kafka message: {}", json); // 원본 메시지
                              log.info("Parsed Kafka event: {}", parsed);   // 파싱 결과 메시지
+                             
+                             // product_click 이벤트인 경우 추가 로그
+                             if ("product_click".equals(parsed.get("eventType"))) {
+                                 log.info("*** PRODUCT_CLICK DETECTED *** userId: {}, productId: {}, timestamp: {}", 
+                                         parsed.get("userId"), parsed.get("productId"), parsed.get("timestamp"));
+                             }
+                             
                              return parsed;
                          } catch (Exception e) {
                              log.error("Failed to parse Kafka message: {}", json, e);
@@ -93,25 +100,31 @@ public class CepEngine {
                          }
                      }
                 })
-                .assignTimestampsAndWatermarks(watermarkStrategy)
                 .filter(Objects::nonNull);  // null이 아닌 것만 필터링
 
-        // 2. CEP 패턴 정의: 동일 유저가 특정 상품을 10분 내 3번 클릭
-        log.info("Defining CEP pattern: product_click 3 times within 10 minutes");
+        log.info("Event stream created with watermark strategy applied");
+
+        // 2. CEP 패턴 정의: 동일 유저가 동일한 상품을 10분 내 3번 클릭
+        log.info("Defining CEP pattern: same user clicks same product 3 times within 10 minutes");
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("clicks")
                 .where(new SimpleCondition<>() {
                     @Override
                     public boolean filter(Map<String, Object> event) {
-                        return "product_click".equals(event.get("eventType"));
+                        boolean isProductClick = "product_click".equals(event.get("eventType"));
+                        if (isProductClick) {
+                            log.info("*** PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
+                                    event.get("userId"), event.get("productId"), event.get("timestamp"));
+                        }
+                        return isProductClick;
                     }
                 })
                 .times(3)
                 .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10));
 
-        // 3. CEP 패턴 스트림 생성
-        log.info("Creating CEP pattern stream...");
+        // 3. CEP 패턴 스트림 생성 - userId와 productId 조합으로 키 그룹화
+        log.info("Creating CEP pattern stream with userId+productId key...");
         PatternStream<Map<String, Object>> patternStream = CEP.pattern(
-                eventStream.keyBy(e -> e.get("userId")),
+                eventStream.keyBy(e -> e.get("userId") + "_" + e.get("productId")),
                 pattern
         );
 
@@ -119,11 +132,21 @@ public class CepEngine {
         log.info("Defining CEP match action...");
         patternStream.select((PatternSelectFunction<Map<String, Object>, String>) patternMatch -> {
             try {
+                log.info("*** CEP PATTERN MATCHED! *** Pattern match details: {}", patternMatch);
+                
                 List<Map<String, Object>> clicks = patternMatch.get("clicks");
+                log.info("*** CEP CLICKS COUNT: {} ***", clicks.size());
+                
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
-                String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + " → 쿠폰 발급 대상!";
+                
+                String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + 
+                               " → 10분 내 3번 클릭 감지! 쿠폰 발급 대상!";
                 log.info(result);
+                log.info("Click details - 1st: {}, 2nd: {}, 3rd: {}", 
+                        clicks.get(0).get("timestamp"), 
+                        clicks.get(1).get("timestamp"), 
+                        clicks.get(2).get("timestamp"));
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
