@@ -54,8 +54,17 @@ public class Config {
                         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                         java.util.Map<String, Object> event = mapper.readValue(jsonString, java.util.Map.class);
                         String timestampStr = (String) event.get("timestamp");  // timestamp 필드를 타임스탬프로 인식하게 함
-                        return Instant.parse(timestampStr).toEpochMilli(); // ISO 8601 → long
+                        
+                        if (timestampStr != null) {
+                            long eventTime = Instant.parse(timestampStr).toEpochMilli();
+                            System.out.println("*** WATERMARK DEBUG *** JSON: " + jsonString + ", Parsed timestamp: " + timestampStr + ", Event time: " + eventTime);
+                            return eventTime; // ISO 8601 → long
+                        } else {
+                            System.out.println("*** WATERMARK DEBUG *** No timestamp found in JSON: " + jsonString);
+                            return System.currentTimeMillis(); // fallback
+                        }
                     } catch (Exception e) {
+                        System.out.println("*** WATERMARK DEBUG *** Error parsing timestamp from JSON: " + jsonString + ", Error: " + e.getMessage());
                         return System.currentTimeMillis(); // fallback
                     }
                 });

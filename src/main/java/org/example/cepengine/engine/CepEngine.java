@@ -76,7 +76,7 @@ public class CepEngine {
         log.info("Initializing Kafka source...");
         DataStream<Map<String, Object>> eventStream = env.fromSource(
                         kafkaSource,
-                        watermarkStrategy,
+                        WatermarkStrategy.noWatermarks(),  // 워터마크 비활성화
                         "KafkaSource")
                 .map(new MapFunction<String, Map<String, Object>>() {
                      @Override
@@ -96,7 +96,6 @@ public class CepEngine {
                          } catch (Exception e) {
                              log.error("Failed to parse Kafka message: {}", json, e);
                              return null;
-//                             throw e;
                          }
                      }
                 })
@@ -119,7 +118,7 @@ public class CepEngine {
                     }
                 })
                 .times(3)
-                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10));
+                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 시간 윈도우
 
         // 3. CEP 패턴 스트림 생성 - userId와 productId 조합으로 키 그룹화
         log.info("Creating CEP pattern stream with userId+productId key...");
