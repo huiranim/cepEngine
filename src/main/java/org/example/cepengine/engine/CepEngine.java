@@ -76,7 +76,7 @@ public class CepEngine {
         log.info("Initializing Kafka source...");
         DataStream<Map<String, Object>> eventStream = env.fromSource(
                         kafkaSource,
-                        WatermarkStrategy.noWatermarks(),  // 워터마크 비활성화
+                        watermarkStrategy,  // CEP를 위해 워터마크 다시 활성화
                         "KafkaSource")
                 .map(new MapFunction<String, Map<String, Object>>() {
                      @Override
@@ -112,21 +112,32 @@ public class CepEngine {
                 .where(new SimpleCondition<>() {
                     @Override
                     public boolean filter(Map<String, Object> event) {
+                        log.info("*** CEP CONDITION EXECUTED *** Event: {}", event);
                         boolean isProductClick = "product_click".equals(event.get("eventType"));
                         if (isProductClick) {
                             log.info("*** CEP PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
                                     event.get("userId"), event.get("productId"), event.get("timestamp"));
+                        } else {
+                            log.info("*** CEP PATTERN REJECTED *** Event type: {}", event.get("eventType"));
                         }
                         return isProductClick;
                     }
                 });
 
+        log.info("CEP pattern created successfully: {}", pattern);
+
         // 3. CEP 패턴 스트림 생성 - userId와 productId 조합으로 키 그룹화
         log.info("Creating CEP pattern stream with userId+productId key...");
         PatternStream<Map<String, Object>> patternStream = CEP.pattern(
-                eventStream.keyBy(e -> e.get("userId") + "_" + e.get("productId")),
+                eventStream.keyBy(e -> {
+                    String key = e.get("userId") + "_" + e.get("productId");
+                    log.info("*** CEP KEY GROUPING *** Key: {}, Event: {}", key, e);
+                    return key;
+                }),
                 pattern
         );
+
+        log.info("CEP pattern stream created successfully");
 
         // 4. 패턴 매칭 시 후속 액션 정의: 쿠폰 발급 대상 로그 출력
         log.info("Defining CEP match action...");
@@ -150,6 +161,8 @@ public class CepEngine {
                 return "[CEP 감지] Exception occurred";
             }
         }).print();
+
+        log.info("CEP pattern matching setup completed");
 
         // 단순한 filter() + count() 방식 (주석처리)
         /*
