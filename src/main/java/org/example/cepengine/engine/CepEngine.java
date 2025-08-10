@@ -103,28 +103,10 @@ public class CepEngine {
 
         log.info("Event stream created with watermark strategy applied");
 
-        // CEP 패턴 방식 (주석처리)
-        /*
-        // 2. CEP 패턴 정의: 동일 유저가 동일한 상품을 10분 내 3번 클릭
-        log.info("Defining CEP pattern: same user clicks same product 3 times within 10 minutes");
+        // CEP 패턴 방식 (단순한 패턴으로 테스트)
+        log.info("Testing CEP with simple pattern...");
         
-        // 기존 패턴 주석처리
-        // Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("clicks")
-        //         .where(new SimpleCondition<>() {
-        //             @Override
-        //             public boolean filter(Map<String, Object> event) {
-        //                 boolean isProductClick = "product_click".equals(event.get("eventType"));
-        //                 if (isProductClick) {
-        //                     log.info("*** PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
-        //                             event.get("userId"), event.get("productId"), event.get("timestamp"));
-        //                 }
-        //                 return isProductClick;
-        //             }
-        //         })
-        //         .times(3)
-        //         .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 시간 윈도우
-        
-        // 아주 단순한 패턴: product_click 이벤트 1개만 감지
+        // 2. CEP 패턴 정의: 단순한 product_click 이벤트 1개 감지
         log.info("Defining SIMPLE CEP pattern: detect single product_click event");
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("click")
                 .where(new SimpleCondition<>() {
@@ -132,7 +114,7 @@ public class CepEngine {
                     public boolean filter(Map<String, Object> event) {
                         boolean isProductClick = "product_click".equals(event.get("eventType"));
                         if (isProductClick) {
-                            log.info("*** SIMPLE PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
+                            log.info("*** CEP PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
                                     event.get("userId"), event.get("productId"), event.get("timestamp"));
                         }
                         return isProductClick;
@@ -152,27 +134,25 @@ public class CepEngine {
             try {
                 log.info("*** CEP PATTERN MATCHED! *** Pattern match details: {}", patternMatch);
                 
-                List<Map<String, Object>> clicks = patternMatch.get("clicks");
+                List<Map<String, Object>> clicks = patternMatch.get("click");
                 log.info("*** CEP CLICKS COUNT: {} ***", clicks.size());
                 
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
                 
                 String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + 
-                               " → 10분 내 3번 클릭 감지! 쿠폰 발급 대상!";
+                               " → 단순 패턴 매칭 성공!";
                 log.info(result);
-                log.info("Click details - 1st: {}, 2nd: {}, 3rd: {}", 
-                        clicks.get(0).get("timestamp"), 
-                        clicks.get(1).get("timestamp"), 
-                        clicks.get(2).get("timestamp"));
+                log.info("Click details - timestamp: {}", clicks.get(0).get("timestamp"));
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
                 return "[CEP 감지] Exception occurred";
             }
         }).print();
-        */
 
+        // 단순한 filter() + count() 방식 (주석처리)
+        /*
         // 단순한 filter() + count() 방식으로 테스트
         log.info("Testing simple filter() + count() approach...");
         
@@ -232,6 +212,7 @@ public class CepEngine {
                         }
                     }
                 }).print();
+        */
 
         // 5. Flink 스트리밍 실행
         log.info("Executing Flink job...");
