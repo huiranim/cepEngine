@@ -103,23 +103,27 @@ public class CepEngine {
 
         log.info("Event stream created with watermark strategy applied");
 
+        // CEP 패턴 방식 (주석처리)
+        /*
         // 2. CEP 패턴 정의: 동일 유저가 동일한 상품을 10분 내 3번 클릭
-//        log.info("Defining CEP pattern: same user clicks same product 3 times within 10 minutes");
-//        Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("clicks")
-//                .where(new SimpleCondition<>() {
-//                    @Override
-//                    public boolean filter(Map<String, Object> event) {
-//                        boolean isProductClick = "product_click".equals(event.get("eventType"));
-//                        if (isProductClick) {
-//                            log.info("*** PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}",
-//                                    event.get("userId"), event.get("productId"), event.get("timestamp"));
-//                        }
-//                        return isProductClick;
-//                    }
-//                })
-//                .times(3)
-//                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 시간 윈도우
-
+        log.info("Defining CEP pattern: same user clicks same product 3 times within 10 minutes");
+        
+        // 기존 패턴 주석처리
+        // Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("clicks")
+        //         .where(new SimpleCondition<>() {
+        //             @Override
+        //             public boolean filter(Map<String, Object> event) {
+        //                 boolean isProductClick = "product_click".equals(event.get("eventType"));
+        //                 if (isProductClick) {
+        //                     log.info("*** PATTERN MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
+        //                             event.get("userId"), event.get("productId"), event.get("timestamp"));
+        //                 }
+        //                 return isProductClick;
+        //             }
+        //         })
+        //         .times(3)
+        //         .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 시간 윈도우
+        
         // 아주 단순한 패턴: product_click 이벤트 1개만 감지
         log.info("Defining SIMPLE CEP pattern: detect single product_click event");
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("click")
@@ -148,23 +152,80 @@ public class CepEngine {
             try {
                 log.info("*** CEP PATTERN MATCHED! *** Pattern match details: {}", patternMatch);
                 
-                // 단순한 패턴에 맞게 수정
-                List<Map<String, Object>> clicks = patternMatch.get("click");
+                List<Map<String, Object>> clicks = patternMatch.get("clicks");
                 log.info("*** CEP CLICKS COUNT: {} ***", clicks.size());
                 
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
                 
                 String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + 
-                               " → 단순 패턴 매칭 성공!";
+                               " → 10분 내 3번 클릭 감지! 쿠폰 발급 대상!";
                 log.info(result);
-                log.info("Click details - timestamp: {}", clicks.get(0).get("timestamp"));
+                log.info("Click details - 1st: {}, 2nd: {}, 3rd: {}", 
+                        clicks.get(0).get("timestamp"), 
+                        clicks.get(1).get("timestamp"), 
+                        clicks.get(2).get("timestamp"));
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
                 return "[CEP 감지] Exception occurred";
             }
         }).print();
+        */
+
+        // 단순한 filter() + count() 방식으로 테스트
+        log.info("Testing simple filter() + count() approach...");
+        
+        // 2. product_click 이벤트만 필터링
+        DataStream<Map<String, Object>> clickEvents = eventStream
+                .filter(event -> {
+                    boolean isProductClick = "product_click".equals(event.get("eventType"));
+                    if (isProductClick) {
+                        log.info("*** FILTER MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
+                                event.get("userId"), event.get("productId"), event.get("timestamp"));
+                    }
+                    return isProductClick;
+                });
+
+        // 3. userId+productId로 키 그룹화하고 카운트
+        clickEvents.keyBy(e -> e.get("userId") + "_" + e.get("productId"))
+                .countWindow(3) // 3번 클릭 시 윈도우 완료
+                .apply((key, window, input, out) -> {
+                    try {
+                        // Iterable의 크기 계산
+                        int count = 0;
+                        for (Map<String, Object> event : input) {
+                            count++;
+                        }
+                        
+                        log.info("*** COUNT WINDOW COMPLETED *** Key: {}, Count: {}", key, count);
+                        
+                        // 다시 iterator를 생성하여 데이터 처리
+                        String userId = null;
+                        String productId = null;
+                        for (Map<String, Object> click : input) {
+                            if (userId == null) {
+                                userId = (String) click.get("userId");
+                                productId = (String) click.get("productId");
+                            }
+                        }
+                        
+                        String result = "[SIMPLE 감지] userId=" + userId + ", productId=" + productId + 
+                                       " → 3번 클릭 감지! 쿠폰 발급 대상!";
+                        log.info(result);
+                        
+                        // 각 클릭의 타임스탬프 출력
+                        int i = 1;
+                        for (Map<String, Object> click : input) {
+                            log.info("Click {}: {}", i++, click.get("timestamp"));
+                        }
+                        
+                        out.collect(result);
+                    } catch (Exception e) {
+                        log.error("Exception in count window", e);
+                        out.collect("[SIMPLE 감지] Exception occurred");
+                    }
+                }).print();
 
         // 5. Flink 스트리밍 실행
         log.info("Executing Flink job...");
