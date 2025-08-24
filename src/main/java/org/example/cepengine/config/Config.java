@@ -49,7 +49,7 @@ public class Config {
     @Bean
     public WatermarkStrategy<String> watermarkStrategy() {
         return WatermarkStrategy
-                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(1)) // 지연 허용 시간을 1초로 단축
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
                 .withTimestampAssigner((jsonString, timestamp) -> {
                     try {
                         // JSON에서 timestamp 필드를 추출하여 타임스탬프로 사용
@@ -60,7 +60,7 @@ public class Config {
                         if (timestampStr != null) {
                             long eventTime = Instant.parse(timestampStr).toEpochMilli();
                             log.info("*** WATERMARK DEBUG *** JSON: {}, Parsed timestamp: {}, Event time: {}", jsonString, timestampStr, eventTime);
-                            log.info("*** WATERMARK PROCESSING *** Event will be processed after: {}", eventTime + 1000); // 1초 후
+                            log.info("*** WATERMARK PROCESSING *** Event will be processed after: {}", eventTime + 5000); // 5초 후
                             return eventTime; // ISO 8601 → long
                         } else {
                             log.info("*** WATERMARK DEBUG *** No timestamp found in JSON: {}", jsonString);

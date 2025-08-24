@@ -28,6 +28,11 @@ import java.util.Objects;
 @Component
 public class CepEngine {
 
+    // CEP 패턴 설정 상수
+    private static final int CEP_CLICK_COUNT_THRESHOLD = 3;           // 감지할 클릭 횟수
+    private static final int CEP_TIME_WINDOW_MINUTES = 10;            // 타임 윈도우 (분)
+    private static final String CEP_PATTERN_NAME = "product_click_event"; // 패턴 이름
+
     private final StreamExecutionEnvironment env;                   // Flink 스트리밍 실행 환경 (데이터 스트림의 소스, 변환, 싱크를 관리)
     private final KafkaSource<String> kafkaSource;                  // Kafka로부터 실시간 이벤트를 읽어오는 Source
     private final WatermarkStrategy<String> watermarkStrategy;      // 워터마크 전략
@@ -143,8 +148,11 @@ public class CepEngine {
         log.info("=== METHOD 2: CEP Pattern Approach (복잡한 패턴 감지용) ===");
         
         // CEP 패턴 정의: 10분 내 동일 상품을 3번 클릭한 사용자 감지
-        log.info("Defining COMPLEX CEP pattern: detect 3 product_click events within 10 minute for same product");
-        Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("product_click_event")
+        log.info("Defining COMPLEX CEP pattern: detect {} product_click events within {} minute for same product", 
+                CEP_CLICK_COUNT_THRESHOLD, CEP_TIME_WINDOW_MINUTES);
+        
+        // 개별 이벤트를 감지하고 후속 처리에서 3개 확인 (카운팅 초기화를 위해)
+        Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin(CEP_PATTERN_NAME)
                 .where(new SimpleCondition<>() {
                     @Override
                     public boolean filter(Map<String, Object> event) {
@@ -160,8 +168,8 @@ public class CepEngine {
                         return isProductClick;
                     }
                 })
-                .times(3) // 3번 클릭
-                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 10분 내
+                .times(CEP_CLICK_COUNT_THRESHOLD) // 클릭 횟수
+                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(CEP_TIME_WINDOW_MINUTES)); // 타임 윈도우
 
         log.info("CEP pattern created successfully: {}", pattern);
 
@@ -184,21 +192,21 @@ public class CepEngine {
             try {
                 log.info("*** CEP PATTERN MATCHED! *** Pattern match details: {}", patternMatch);
                 
-                List<Map<String, Object>> clicks = patternMatch.get("product_click_event");
+                List<Map<String, Object>> clicks = patternMatch.get(CEP_PATTERN_NAME);
                 log.info("*** CEP CLICKS COUNT: {} ***", clicks.size());
                 
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
                 
-                String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + 
-                               " → 10분 내 3번 클릭 감지! 쿠폰 발급 대상!";
+                String result = String.format("[CEP 감지] userId=%s, productId=%s → %d분 내 %d번 클릭 감지! 쿠폰 발급 대상!", 
+                        userId, productId, CEP_TIME_WINDOW_MINUTES, clicks.size());
                 log.info(result);
                 
                 // 각 클릭의 타임스탬프 출력
                 for (int i = 0; i < clicks.size(); i++) {
                     log.info("Click {}: {}", i + 1, clicks.get(i).get("timestamp"));
                 }
-                
+
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
