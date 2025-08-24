@@ -85,13 +85,6 @@ public class CepEngine {
                              Map<String, Object> parsed = OBJECT_MAPPER.readValue(json, Map.class);
                              log.info("Received Kafka message: {}", json); // 원본 메시지
                              log.info("Parsed Kafka event: {}", parsed);   // 파싱 결과 메시지
-                             
-                             // product_click 이벤트인 경우 추가 로그
-//                             if ("product_click".equals(parsed.get("eventType"))) {
-//                                 log.info("*** PRODUCT_CLICK DETECTED *** userId: {}, productId: {}, timestamp: {}",
-//                                         parsed.get("userId"), parsed.get("productId"), parsed.get("timestamp"));
-//                             }
-                             
                              return parsed;
                          } catch (Exception e) {
                              log.error("Failed to parse Kafka message: {}", json, e);
@@ -103,7 +96,7 @@ public class CepEngine {
 
         log.info("Event stream created with watermark strategy applied");
 
-        // 방법 1: 단순 필터 방식 (단순 이벤트 감지용 - 권장)
+        // 방법 1: 단순 필터 방식 (단순 이벤트 감지용)
 //        runSimpleFilterApproach(eventStream);
         
         // 방법 2: CEP 패턴 방식 (복잡한 시간 기반 패턴용)
@@ -144,13 +137,13 @@ public class CepEngine {
 
     /**
      * 방법 2: CEP 패턴 방식 - 복잡한 시간 기반 패턴에 적합
-     * 예: 1분 내 동일 상품을 3번 클릭한 사용자 감지 (테스트용으로 단축)
+     * 예: 10분 내 동일 상품을 3번 클릭한 사용자 감지
      */
     private void runCepPatternApproach(DataStream<Map<String, Object>> eventStream) {
         log.info("=== METHOD 2: CEP Pattern Approach (복잡한 패턴 감지용) ===");
         
-        // CEP 패턴 정의: 1분 내 동일 상품을 3번 클릭한 사용자 감지 (테스트용으로 단축)
-        log.info("Defining COMPLEX CEP pattern: detect 3 product_click events within 1 minute for same product");
+        // CEP 패턴 정의: 10분 내 동일 상품을 3번 클릭한 사용자 감지
+        log.info("Defining COMPLEX CEP pattern: detect 3 product_click events within 10 minute for same product");
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin("product_click_event")
                 .where(new SimpleCondition<>() {
                     @Override
@@ -168,7 +161,7 @@ public class CepEngine {
                     }
                 })
                 .times(3) // 3번 클릭
-                .within(org.apache.flink.streaming.api.windowing.time.Time.seconds(30)); // 30초 내 (테스트용으로 단축)
+                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(10)); // 10분 내
 
         log.info("CEP pattern created successfully: {}", pattern);
 
