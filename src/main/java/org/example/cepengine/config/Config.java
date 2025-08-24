@@ -49,7 +49,7 @@ public class Config {
     @Bean
     public WatermarkStrategy<String> watermarkStrategy() {
         return WatermarkStrategy
-                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(1))    // TODO) 5로 바꾸는 것이 이상적이어 보이나, 바꾸면 감지 안됨
                 .withTimestampAssigner((jsonString, timestamp) -> {
                     try {
                         // JSON에서 timestamp 필드를 추출하여 타임스탬프로 사용

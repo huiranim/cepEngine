@@ -31,7 +31,8 @@ public class CepEngine {
     // CEP 패턴 설정 상수
     private static final int CEP_CLICK_COUNT_THRESHOLD = 3;           // 감지할 클릭 횟수
     private static final int CEP_TIME_WINDOW_MINUTES = 10;            // 타임 윈도우 (분)
-    private static final String CEP_PATTERN_NAME = "product_click_event"; // 패턴 이름
+    private static final String CEP_PATTERN_NAME = "cep_pattern";     // 패턴 이름
+    private static final String CEP_TARGET_EVENT_TYPE = "category_click"; // 패턴 대상 이벤트 타입
 
     private final StreamExecutionEnvironment env;                   // Flink 스트리밍 실행 환경 (데이터 스트림의 소스, 변환, 싱크를 관리)
     private final KafkaSource<String> kafkaSource;                  // Kafka로부터 실시간 이벤트를 읽어오는 Source
@@ -116,29 +117,29 @@ public class CepEngine {
     /**
      * 방법 1: 단순 필터 방식 - 단순한 이벤트 감지에 적합
      */
-    private void runSimpleFilterApproach(DataStream<Map<String, Object>> eventStream) {
-        log.info("=== METHOD 1: Simple Filter Approach (단순 이벤트 감지용) ===");
-        
-        // product_click 이벤트만 필터링
-        DataStream<Map<String, Object>> clickEvents = eventStream
-                .filter(event -> {
-                    boolean isProductClick = "product_click".equals(event.get("eventType"));
-                    if (isProductClick) {
-                        log.info("*** SIMPLE FILTER MATCH *** Event passed filter: userId={}, productId={}, timestamp={}", 
-                                event.get("userId"), event.get("productId"), event.get("timestamp"));
-                    }
-                    return isProductClick;
-                });
-
-        // 결과 출력
-        clickEvents.map(event -> {
-            String userId = (String) event.get("userId");
-            String productId = (String) event.get("productId");
-            String result = "[SIMPLE FILTER] userId=" + userId + ", productId=" + productId + " → 단순 필터 감지 성공!";
-            log.info(result);
-            return result;
-        }).print("SimpleFilter");
-    }
+//    private void runSimpleFilterApproach(DataStream<Map<String, Object>> eventStream) {
+//        log.info("=== METHOD 1: Simple Filter Approach (단순 이벤트 감지용) ===");
+//
+//        // product_click 이벤트만 필터링
+//        DataStream<Map<String, Object>> clickEvents = eventStream
+//                .filter(event -> {
+//                    boolean isProductClick = CEP_TARGET_EVENT_TYPE.equals(event.get("eventType"));
+//                    if (isProductClick) {
+//                        log.info("*** SIMPLE FILTER MATCH *** Event passed filter: userId={}, productId={}, timestamp={}",
+//                                event.get("userId"), event.get("productId"), event.get("timestamp"));
+//                    }
+//                    return isProductClick;
+//                });
+//
+//        // 결과 출력
+//        clickEvents.map(event -> {
+//            String userId = (String) event.get("userId");
+//            String productId = (String) event.get("productId");
+//            String result = "[SIMPLE FILTER] userId=" + userId + ", productId=" + productId + " → 단순 필터 감지 성공!";
+//            log.info(result);
+//            return result;
+//        }).print("SimpleFilter");
+//    }
 
     /**
      * 방법 2: CEP 패턴 방식 - 복잡한 시간 기반 패턴에 적합
@@ -148,24 +149,24 @@ public class CepEngine {
         log.info("=== METHOD 2: CEP Pattern Approach (복잡한 패턴 감지용) ===");
         
         // CEP 패턴 정의: 10분 내 동일 상품을 3번 클릭한 사용자 감지
-        log.info("Defining COMPLEX CEP pattern: detect {} product_click events within {} minute for same product", 
-                CEP_CLICK_COUNT_THRESHOLD, CEP_TIME_WINDOW_MINUTES);
+        log.info("Defining COMPLEX CEP pattern: detect {} {} events within {} minute for same product", 
+                CEP_CLICK_COUNT_THRESHOLD, CEP_TARGET_EVENT_TYPE, CEP_TIME_WINDOW_MINUTES);
         
         // 개별 이벤트를 감지하고 후속 처리에서 3개 확인 (카운팅 초기화를 위해)
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin(CEP_PATTERN_NAME)
                 .where(new SimpleCondition<>() {
                     @Override
                     public boolean filter(Map<String, Object> event) {
-                        log.info("*** CEP PRODUCT CLICK CONDITION *** Event: {}", event);
+                        log.info("*** CEP EVENT CONDITION *** Event: {}", event);
                         log.info("*** CEP CONDITION EXECUTION TIME *** Current time: {}", System.currentTimeMillis());
-                        boolean isProductClick = "product_click".equals(event.get("eventType"));
-                        if (isProductClick) {
-                            log.info("*** CEP PRODUCT CLICK MATCH *** userId={}, productId={}, timestamp={}", 
+                        boolean isTargetEvent = CEP_TARGET_EVENT_TYPE.equals(event.get("eventType"));
+                        if (isTargetEvent) {
+                            log.info("*** CEP EVENT MATCH *** userId={}, productId={}, timestamp={}", 
                                     event.get("userId"), event.get("productId"), event.get("timestamp"));
                         } else {
-                            log.info("*** CEP PRODUCT CLICK REJECTED *** Event type: {}", event.get("eventType"));
+                            log.info("*** CEP EVENT REJECTED *** Event type: {}", event.get("eventType"));
                         }
-                        return isProductClick;
+                        return isTargetEvent;
                     }
                 })
                 .times(CEP_CLICK_COUNT_THRESHOLD) // 클릭 횟수
@@ -198,15 +199,15 @@ public class CepEngine {
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
                 
-                String result = String.format("[CEP 감지] userId=%s, productId=%s → %d분 내 %d번 클릭 감지! 쿠폰 발급 대상!", 
-                        userId, productId, CEP_TIME_WINDOW_MINUTES, clicks.size());
+                String result = String.format("[CEP 감지] userId=%s, productId=%s → %d분 내 %d번 %s 감지! 쿠폰 발급 대상!", 
+                        userId, productId, CEP_TIME_WINDOW_MINUTES, clicks.size(), CEP_TARGET_EVENT_TYPE);
                 log.info(result);
                 
                 // 각 클릭의 타임스탬프 출력
                 for (int i = 0; i < clicks.size(); i++) {
                     log.info("Click {}: {}", i + 1, clicks.get(i).get("timestamp"));
                 }
-
+                
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
