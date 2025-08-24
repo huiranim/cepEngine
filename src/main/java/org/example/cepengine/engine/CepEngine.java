@@ -191,7 +191,7 @@ public class CepEngine {
                 String productId = (String) clicks.get(0).get("productId");
                 
                 String result = "[CEP 감지] userId=" + userId + ", productId=" + productId + 
-                               " → 1분 내 3번 클릭 감지! 쿠폰 발급 대상!";
+                               " → 10분 내 3번 클릭 감지! 쿠폰 발급 대상!";
                 log.info(result);
                 
                 // 각 클릭의 타임스탬프 출력
