@@ -5,15 +5,17 @@ import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 
 @Configuration
 public class Config {
+    private static final Logger log = LoggerFactory.getLogger(Config.class);
+
     /*
     * Flink 애플리케이션 실행 환경(context)
     * 데이터를 읽고(source), 처리하고(transform), 출력(sink)하는 전체 실행 플랜을 구성하는 핵심 객체
@@ -47,7 +49,7 @@ public class Config {
     @Bean
     public WatermarkStrategy<String> watermarkStrategy() {
         return WatermarkStrategy
-                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(5)) // 이벤트 도착 지연 허용 시간
+                .<String>forBoundedOutOfOrderness(Duration.ofSeconds(1)) // 지연 허용 시간을 1초로 단축
                 .withTimestampAssigner((jsonString, timestamp) -> {
                     try {
                         // JSON에서 timestamp 필드를 추출하여 타임스탬프로 사용
@@ -57,16 +59,18 @@ public class Config {
                         
                         if (timestampStr != null) {
                             long eventTime = Instant.parse(timestampStr).toEpochMilli();
-                            System.out.println("*** WATERMARK DEBUG *** JSON: " + jsonString + ", Parsed timestamp: " + timestampStr + ", Event time: " + eventTime);
+                            log.info("*** WATERMARK DEBUG *** JSON: {}, Parsed timestamp: {}, Event time: {}", jsonString, timestampStr, eventTime);
+                            log.info("*** WATERMARK PROCESSING *** Event will be processed after: {}", eventTime + 1000); // 1초 후
                             return eventTime; // ISO 8601 → long
                         } else {
-                            System.out.println("*** WATERMARK DEBUG *** No timestamp found in JSON: " + jsonString);
+                            log.info("*** WATERMARK DEBUG *** No timestamp found in JSON: {}", jsonString);
                             return System.currentTimeMillis(); // fallback
                         }
                     } catch (Exception e) {
-                        System.out.println("*** WATERMARK DEBUG *** Error parsing timestamp from JSON: " + jsonString + ", Error: " + e.getMessage());
+                        log.info("*** WATERMARK DEBUG *** Error parsing timestamp from JSON: {}, Error: {}", jsonString, e.getMessage());
                         return System.currentTimeMillis(); // fallback
                     }
-                });
+                })
+                .withIdleness(Duration.ofSeconds(3)); // 유휴 상태 처리 시간을 3초로 단축
     }
 }
