@@ -8,6 +8,7 @@ import org.apache.flink.cep.PatternSelectFunction;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.pattern.Pattern;
 import org.apache.flink.cep.pattern.conditions.IterativeCondition;
+import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -102,56 +103,10 @@ public class CepEngine {
 
         log.info("Event stream created with watermark strategy applied");
 
-        // 방법 1: 단순 필터 방식 (단순 이벤트 감지용)
-//        runSimpleFilterApproach(eventStream);
-        
-        // 방법 2: CEP 패턴 방식 (복잡한 시간 기반 패턴용)
-        runCepPatternApproach(eventStream);
-
-        // 5. Flink 스트리밍 실행
-        log.info("Executing Flink job...");
-        env.execute("CEP-PILOT0-JOB");
-        log.info("Flink job execution started.");
-    }
-
-    /**
-     * 방법 1: 단순 필터 방식 - 단순한 이벤트 감지에 적합
-     */
-//    private void runSimpleFilterApproach(DataStream<Map<String, Object>> eventStream) {
-//        log.info("=== METHOD 1: Simple Filter Approach (단순 이벤트 감지용) ===");
-//
-//        // product_click 이벤트만 필터링
-//        DataStream<Map<String, Object>> clickEvents = eventStream
-//                .filter(event -> {
-//                    boolean isProductClick = CEP_TARGET_EVENT_TYPE.equals(event.get("eventType"));
-//                    if (isProductClick) {
-//                        log.info("*** SIMPLE FILTER MATCH *** Event passed filter: userId={}, productId={}, timestamp={}",
-//                                event.get("userId"), event.get("productId"), event.get("timestamp"));
-//                    }
-//                    return isProductClick;
-//                });
-//
-//        // 결과 출력
-//        clickEvents.map(event -> {
-//            String userId = (String) event.get("userId");
-//            String productId = (String) event.get("productId");
-//            String result = "[SIMPLE FILTER] userId=" + userId + ", productId=" + productId + " → 단순 필터 감지 성공!";
-//            log.info(result);
-//            return result;
-//        }).print("SimpleFilter");
-//    }
-
-    /**
-     * 방법 2: CEP 패턴 방식 - 복잡한 시간 기반 패턴에 적합
-     * 예: 10분 내 동일 상품을 3번 클릭한 사용자 감지
-     */
-    private void runCepPatternApproach(DataStream<Map<String, Object>> eventStream) {
-        log.info("=== METHOD 2: CEP Pattern Approach (복잡한 패턴 감지용) ===");
-        
-        // CEP 패턴 정의: 10분 내 동일 상품을 3번 클릭한 사용자 감지
-        log.info("Defining COMPLEX CEP pattern: detect {} {} events within {} minute for same product", 
+        // CEP 패턴 정의
+        log.info("Defining CEP pattern: detect {} {} events within {} minute for same product",
                 CEP_CLICK_COUNT_THRESHOLD, CEP_TARGET_EVENT_TYPE, CEP_TIME_WINDOW_MINUTES);
-        
+
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin(CEP_PATTERN_NAME)
                 .where(new IterativeCondition<>() {
                     @Override
@@ -176,13 +131,13 @@ public class CepEngine {
                             }
                         }
 
-                        log.info("*** CEP EVENT MATCH *** userId={}, productId={}, timestamp={}", 
+                        log.info("*** CEP EVENT MATCH *** userId={}, productId={}, timestamp={}",
                                 event.get("userId"), event.get("productId"), event.get("timestamp"));
                         return true;
                     }
                 })
-                .times(CEP_CLICK_COUNT_THRESHOLD) // 클릭 횟수
-                .within(org.apache.flink.streaming.api.windowing.time.Time.minutes(CEP_TIME_WINDOW_MINUTES)); // 타임 윈도우
+                .times(CEP_CLICK_COUNT_THRESHOLD) // 발생 횟수
+                .within(Time.minutes(CEP_TIME_WINDOW_MINUTES)); // 타임 윈도우
 
         log.info("CEP pattern created successfully: {}", pattern);
 
@@ -204,28 +159,33 @@ public class CepEngine {
         patternStream.select((PatternSelectFunction<Map<String, Object>, String>) patternMatch -> {
             try {
                 log.info("*** CEP PATTERN MATCHED! *** Pattern match details: {}", patternMatch);
-                
+
                 List<Map<String, Object>> clicks = patternMatch.get(CEP_PATTERN_NAME);
                 log.info("*** CEP CLICKS COUNT: {} ***", clicks.size());
-                
+
                 String userId = (String) clicks.get(0).get("userId");
                 String productId = (String) clicks.get(0).get("productId");
-                
-                String result = String.format("[CEP 감지] userId=%s, productId=%s → %d분 내 %d번 %s 감지! 쿠폰 발급 대상!", 
+
+                String result = String.format("[CEP 감지] userId=%s, productId=%s → %d분 내 %d번 %s 감지! 쿠폰 발급 대상!",
                         userId, productId, CEP_TIME_WINDOW_MINUTES, clicks.size(), CEP_TARGET_EVENT_TYPE);
                 log.info(result);
-                
+
                 // 각 클릭의 타임스탬프 출력
                 for (int i = 0; i < clicks.size(); i++) {
                     log.info("Click {}: {}", i + 1, clicks.get(i).get("timestamp"));
                 }
-                
+
                 return result;
             } catch (Exception e) {
                 log.error("Exception occurred while processing CEP pattern match", e);
                 return "[CEP 감지] Exception occurred";
             }
         }).print("CepPattern");
+
+        // 5. Flink 스트리밍 실행
+        log.info("Executing Flink job...");
+        env.execute("CEP-PILOT0-JOB");
+        log.info("Flink job execution started.");
     }
 
     // 테스트 환경 여부
