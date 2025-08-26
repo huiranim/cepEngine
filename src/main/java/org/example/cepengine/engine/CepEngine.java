@@ -7,7 +7,7 @@ import org.apache.flink.cep.CEP;
 import org.apache.flink.cep.PatternSelectFunction;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.pattern.Pattern;
-import org.apache.flink.cep.pattern.conditions.SimpleCondition;
+import org.apache.flink.cep.pattern.conditions.IterativeCondition;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -32,7 +32,7 @@ public class CepEngine {
     private static final int CEP_CLICK_COUNT_THRESHOLD = 3;           // 감지할 클릭 횟수
     private static final int CEP_TIME_WINDOW_MINUTES = 10;            // 타임 윈도우 (분)
     private static final String CEP_PATTERN_NAME = "cep_pattern";     // 패턴 이름
-    private static final String CEP_TARGET_EVENT_TYPE = "category_click"; // 패턴 대상 이벤트 타입
+    private static final String CEP_TARGET_EVENT_TYPE = "product_click"; // 패턴 대상 이벤트 타입
 
     private final StreamExecutionEnvironment env;                   // Flink 스트리밍 실행 환경 (데이터 스트림의 소스, 변환, 싱크를 관리)
     private final KafkaSource<String> kafkaSource;                  // Kafka로부터 실시간 이벤트를 읽어오는 Source
@@ -152,21 +152,33 @@ public class CepEngine {
         log.info("Defining COMPLEX CEP pattern: detect {} {} events within {} minute for same product", 
                 CEP_CLICK_COUNT_THRESHOLD, CEP_TARGET_EVENT_TYPE, CEP_TIME_WINDOW_MINUTES);
         
-        // 개별 이벤트를 감지하고 후속 처리에서 3개 확인 (카운팅 초기화를 위해)
         Pattern<Map<String, Object>, ?> pattern = Pattern.<Map<String, Object>>begin(CEP_PATTERN_NAME)
-                .where(new SimpleCondition<>() {
+                .where(new IterativeCondition<>() {
                     @Override
-                    public boolean filter(Map<String, Object> event) {
+                    public boolean filter(Map<String, Object> event, Context<Map<String, Object>> ctx) throws Exception {
                         log.info("*** CEP EVENT CONDITION *** Event: {}", event);
                         log.info("*** CEP CONDITION EXECUTION TIME *** Current time: {}", System.currentTimeMillis());
+
+                        // 1) 타깃 이벤트 타입 여부
                         boolean isTargetEvent = CEP_TARGET_EVENT_TYPE.equals(event.get("eventType"));
-                        if (isTargetEvent) {
-                            log.info("*** CEP EVENT MATCH *** userId={}, productId={}, timestamp={}", 
-                                    event.get("userId"), event.get("productId"), event.get("timestamp"));
-                        } else {
+                        if (!isTargetEvent) {
                             log.info("*** CEP EVENT REJECTED *** Event type: {}", event.get("eventType"));
+                            return false;
                         }
-                        return isTargetEvent;
+
+                        // 2) 이전 매칭 이벤트들과 productId 동일성 검사 (패턴 이름으로 누적 이벤트 조회)
+                        String currentProductId = (String) event.get("productId");
+                        for (Map<String, Object> prev : ctx.getEventsForPattern(CEP_PATTERN_NAME)) {
+                            String prevProductId = (String) prev.get("productId");
+                            if (prevProductId != null && currentProductId != null && !prevProductId.equals(currentProductId)) {
+                                log.info("*** CEP EVENT REJECTED (DIFFERENT PRODUCT) *** prevProductId={}, currentProductId={}", prevProductId, currentProductId);
+                                return false;
+                            }
+                        }
+
+                        log.info("*** CEP EVENT MATCH *** userId={}, productId={}, timestamp={}", 
+                                event.get("userId"), event.get("productId"), event.get("timestamp"));
+                        return true;
                     }
                 })
                 .times(CEP_CLICK_COUNT_THRESHOLD) // 클릭 횟수
@@ -174,12 +186,12 @@ public class CepEngine {
 
         log.info("CEP pattern created successfully: {}", pattern);
 
-        // CEP 패턴 스트림 생성 - userId+productId로 키 그룹화
-        log.info("Creating CEP pattern stream with userId+productId key...");
+        // CEP 패턴 스트림 생성 - userId로 키 그룹화
+        log.info("Creating CEP pattern stream with userId key...");
         PatternStream<Map<String, Object>> patternStream = CEP.pattern(
                 eventStream.keyBy(e -> {
-                    String key = e.get("userId") + "_" + e.get("productId");
-                    log.info("*** CEP KEY GROUPING *** Key: {}, Event: {}", key, e);
+                    String key = (String) e.get("userId");
+                    log.info("*** CEP KEY GROUPING (userId) *** Key: {}, Event: {}", key, e);
                     return key;
                 }),
                 pattern
