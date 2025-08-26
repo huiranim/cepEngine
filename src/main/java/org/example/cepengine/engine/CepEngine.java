@@ -136,7 +136,29 @@ public class CepEngine {
                         return true;
                     }
                 })
-                .times(CEP_CLICK_COUNT_THRESHOLD) // 발생 횟수
+//                .times(CEP_CLICK_COUNT_THRESHOLD) // 발생 횟수
+                .timesOrMore(CEP_CLICK_COUNT_THRESHOLD) // 최소 발생 횟수 (루프 상태)
+                // 차단 이벤트(cart_add, purchase)가 동일 productId로 등장하면 패턴 확인 중단
+                .until(new IterativeCondition<>() {
+                    @Override
+                    public boolean filter(Map<String, Object> event, Context<Map<String, Object>> ctx) throws Exception {
+                        String type = (String) event.get("eventType");
+                        if (!"cart_add".equals(type) && !"purchase".equals(type)) {
+                            return false;
+                        }
+                        // 동일 productId 인지 확인 (첫 번째 이벤트 기준)
+                        String blockerPid = (String) event.get("productId");
+                        for (Map<String, Object> prev : ctx.getEventsForPattern(CEP_PATTERN_NAME)) {
+                            String basePid = (String) prev.get("productId");
+                            if (basePid != null && blockerPid != null && basePid.equals(blockerPid)) {
+                                log.info("*** CEP BLOCKER DETECTED *** type={}, productId={}, userId={}, timestamp={}",
+                                        type, blockerPid, event.get("userId"), event.get("timestamp"));
+                                return true; // until 충족 → 반복 중단(매칭 실패)
+                            }
+                        }
+                        return false;
+                    }
+                })
                 .within(Time.minutes(CEP_TIME_WINDOW_MINUTES)); // 타임 윈도우
 
         log.info("CEP pattern created successfully: {}", pattern);
