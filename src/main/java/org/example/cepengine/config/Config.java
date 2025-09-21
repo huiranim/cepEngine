@@ -71,6 +71,6 @@ public class Config {
                         return System.currentTimeMillis(); // fallback
                     }
                 })
-                .withIdleness(Duration.ofSeconds(3)); // 유휴 상태 처리 시간을 3초로 단축
+                .withIdleness(Duration.ofSeconds(3)); // 유휴 상태 처리 시간
     }
 }

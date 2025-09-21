@@ -52,9 +52,9 @@ public class CepEngine {
     /**
      * Flink 스트리밍 작업 시작 메서드
      * 1. Kafka → JSON 문자열 → Map 변환
-     * 2. CEP 패턴 정의: 동일 유저가 특정 상품을 10분 내 3번 클릭
+     * 2. CEP 패턴 정의
      * 3. CEP 패턴 스트림 생성
-     * 4. 패턴 매칭 시 후속 액션 정의: 쿠폰 발급 대상 로그 출력
+     * 4. 패턴 매칭 시 후속 액션 정의
      * 5. Flink 스트리밍 실행
      */
     @PostConstruct
@@ -83,7 +83,7 @@ public class CepEngine {
         log.info("Initializing Kafka source...");
         DataStream<Map<String, Object>> eventStream = env.fromSource(
                         kafkaSource,
-                        watermarkStrategy,  // CEP를 위해 워터마크 다시 활성화
+                        watermarkStrategy,
                         "KafkaSource")
                 .map(new MapFunction<String, Map<String, Object>>() {
                      @Override
@@ -103,7 +103,7 @@ public class CepEngine {
 
         log.info("Event stream created with watermark strategy applied");
 
-        // CEP 패턴 정의
+        // 2. CEP 패턴 정의
         log.info("Defining CEP pattern: detect {} {} events within {} minute for same product",
                 CEP_CLICK_COUNT_THRESHOLD, CEP_TARGET_EVENT_TYPE, CEP_TIME_WINDOW_MINUTES);
 
@@ -163,7 +163,7 @@ public class CepEngine {
 
         log.info("CEP pattern created successfully: {}", pattern);
 
-        // CEP 패턴 스트림 생성 - userId로 키 그룹화
+        // 3. CEP 패턴 스트림 생성 - userId로 키 그룹화
         log.info("Creating CEP pattern stream with userId key...");
         PatternStream<Map<String, Object>> patternStream = CEP.pattern(
                 eventStream.keyBy(e -> {
@@ -176,7 +176,7 @@ public class CepEngine {
 
         log.info("CEP pattern stream created successfully");
 
-        // 패턴 매칭 시 후속 액션 정의
+        // 4. 패턴 매칭 시 후속 액션 정의
         log.info("Defining CEP match action...");
         patternStream.select((PatternSelectFunction<Map<String, Object>, String>) patternMatch -> {
             try {
